@@ -13,32 +13,35 @@
 @protocol GUIPlayerViewDelegate <NSObject>
 
 @optional
-- (void)playerDidPause;
-- (void)playerDidResume;
-- (void)playerDidEndPlaying;
-- (void)playerWillEnterFullscreen;
-- (void)playerDidEnterFullscreen;
-- (void)playerWillLeaveFullscreen;
-- (void)playerDidLeaveFullscreen;
+- (void)playerDidPause:(GUIPlayerView *)playerView;
+- (void)playerDidResume:(GUIPlayerView *)playerView;
+- (void)playerDidEndPlaying:(GUIPlayerView *)playerView;
+- (void)playerWillEnterFullScreen:(GUIPlayerView *)playerView;
+- (void)playerDidEnterFullScreen:(GUIPlayerView *)playerView;
+- (void)playerWillLeaveFullScreen:(GUIPlayerView *)playerView;
+- (void)playerDidLeaveFullScreen:(GUIPlayerView *)playerView;
 
-- (void)playerFailedToPlayToEnd;
-- (void)playerStalled;
+- (void)playerFailedToPlayToEnd:(GUIPlayerView *)playerView error:(NSError *)error;
+- (void)playerStalled:(GUIPlayerView *)playerView;
 
 @end
+
 
 @interface GUIPlayerView : UIView
 
 @property (strong, nonatomic) NSURL *videoURL;
-@property (assign, nonatomic) NSInteger controllersTimeoutPeriod;
+@property (assign, nonatomic) NSInteger controlTimeoutPeriod;
 @property (weak, nonatomic) id<GUIPlayerViewDelegate> delegate;
+@property (nonatomic, assign) BOOL controlsHidden;
 
 - (void)prepareAndPlayAutomatically:(BOOL)playAutomatically;
-- (void)clean;
 - (void)play;
 - (void)pause;
 - (void)stop;
 
 - (BOOL)isPlaying;
+
+- (void)setControlsHidden:(BOOL)hidden animated:(BOOL)animated;
 
 - (void)setBufferTintColor:(UIColor *)tintColor;
 

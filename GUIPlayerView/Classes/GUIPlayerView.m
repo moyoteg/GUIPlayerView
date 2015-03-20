@@ -11,625 +11,792 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
+#import "GUIFullScreenPlayerController.h"
 
 #import "UIView+UpdateAutoLayoutConstraints.h"
 
-@interface GUIPlayerView () <AVAssetResourceLoaderDelegate, NSURLConnectionDataDelegate>
+@interface GUIPlayerView () <AVAssetResourceLoaderDelegate, UIViewControllerTransitioningDelegate>
 
-@property (strong, nonatomic) AVPlayer *player;
-@property (strong, nonatomic) AVPlayerLayer *playerLayer;
-@property (strong, nonatomic) AVPlayerItem *currentItem;
+@property(strong, nonatomic) AVPlayer *player;
+@property(strong, nonatomic) AVPlayerLayer *playerLayer;
+@property(strong, nonatomic) AVPlayerItem *currentItem;
 
-@property (strong, nonatomic) UIView *controllersView;
-@property (strong, nonatomic) UILabel *airPlayLabel;
+@property(strong, nonatomic) NSTimer *progressTimer;
+@property(strong, nonatomic) NSTimer *controllersTimer;
+@property(assign, nonatomic) BOOL seeking;
+@property(assign, nonatomic) BOOL fullScreen;
 
-@property (strong, nonatomic) UIButton *playButton;
-@property (strong, nonatomic) UIButton *fullscreenButton;
-@property (strong, nonatomic) MPVolumeView *volumeView;
-@property (strong, nonatomic) GUISlider *progressIndicator;
-@property (strong, nonatomic) UILabel *currentTimeLabel;
-@property (strong, nonatomic) UILabel *remainingTimeLabel;
-@property (strong, nonatomic) UILabel *liveLabel;
+@property(nonatomic, strong) GUIFullScreenPlayerController *fullScreenController;
+@property(nonatomic, strong) GUINavigationController *navigationController;
 
-@property (strong, nonatomic) UIView *spacerView;
+@property(strong, nonatomic) UIActivityIndicatorView *activityIndicator;
+@property(strong, nonatomic) UIView *controlsView;
 
-@property (strong, nonatomic) UIActivityIndicatorView *activityIndicator;
-@property (strong, nonatomic) NSTimer *progressTimer;
-@property (strong, nonatomic) NSTimer *controllersTimer;
-@property (assign, nonatomic) BOOL seeking;
-@property (assign, nonatomic) BOOL fullscreen;
-@property (assign, nonatomic) CGRect defaultFrame;
+@property(nonatomic, strong) MPVolumeView *volumeView;
+
+@property(nonatomic, strong) UIButton *playButton;
+@property(nonatomic, strong) UIButton *fullScreenButton;
+
+@property(nonatomic, strong) GUISlider *progressIndicator;
+@property(nonatomic, strong) UILabel *airPlayLabel;
+@property(nonatomic, strong) UILabel *liveLabel;
+
+@property(nonatomic, strong) UILabel *remainingTimeLabel;
+@property(nonatomic, strong) UILabel *currentTimeLabel;
+
+@property(nonatomic, strong) UIView *spacerView;
+
+@property(nonatomic, strong) UIColor *controlBackgroundColor;
+@end
+
+
+@implementation PlayerView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+
+    self = [super initWithFrame:frame];
+    return self;
+}
+
+- (void)layoutSublayersOfLayer:(CALayer *)layer {
+    [super layoutSublayersOfLayer:layer];
+
+    if (layer == self.layer) {
+        self.playerLayer.frame = self.layer.bounds;
+    }
+}
+
+- (void)setPlayerLayer:(AVPlayerLayer *)playerLayer {
+
+    if (_playerLayer != playerLayer) {
+        [_playerLayer removeFromSuperlayer];
+
+        _playerLayer = playerLayer;
+
+        if (playerLayer) {
+            [self.layer addSublayer:playerLayer];
+        }
+    }
+}
 
 @end
 
+
 @implementation GUIPlayerView
-
-@synthesize player, playerLayer, currentItem;
-@synthesize controllersView, airPlayLabel;
-@synthesize playButton, fullscreenButton, volumeView, progressIndicator, currentTimeLabel, remainingTimeLabel, liveLabel, spacerView;
-@synthesize activityIndicator, progressTimer, controllersTimer, seeking, fullscreen, defaultFrame;
-
-@synthesize videoURL, controllersTimeoutPeriod, delegate;
 
 #pragma mark - View Life Cycle
 
 - (instancetype)initWithFrame:(CGRect)frame {
-  self = [super initWithFrame:frame];
-  defaultFrame = frame;
-  [self setup];
-  return self;
+    self = [super initWithFrame:frame];
+    [self setup];
+    return self;
 }
 
 - (instancetype)initWithCoder:(NSCoder *)aDecoder {
-  self = [super initWithCoder:aDecoder];
-  [self setup];
-  return self;
+    self = [super initWithCoder:aDecoder];
+    [self setup];
+    return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemPlaybackStalledNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:MPVolumeViewWirelessRoutesAvailableDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:MPVolumeViewWirelessRouteActiveDidChangeNotification object:nil];
+
+    self.currentItem = nil;
+
+    [self.player setAllowsExternalPlayback:NO];
+    [self stop];
+    [self.player removeObserver:self forKeyPath:@"rate"];
+}
+
+- (void)layoutSublayersOfLayer:(CALayer *)layer {
+    [super layoutSublayersOfLayer:layer];
+
+    if (layer == self.layer) {
+        self.playerLayer.frame = self.layer.bounds;
+    }
 }
 
 - (void)setup {
-  // Set up notification observers
-  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerDidFinishPlaying:)
-                                               name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
-  
-  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerFailedToPlayToEnd:)
-                                               name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
-  
-  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerStalled:)
-                                               name:AVPlayerItemPlaybackStalledNotification object:nil];
-  
-  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(airPlayAvailabilityChanged:)
-                                               name:MPVolumeViewWirelessRoutesAvailableDidChangeNotification object:nil];
-  
-  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(airPlayActivityChanged:)
-                                               name:MPVolumeViewWirelessRouteActiveDidChangeNotification object:nil];
-  
-  [self setBackgroundColor:[UIColor blackColor]];
-  
-  NSArray *horizontalConstraints;
-  NSArray *verticalConstraints;
-  
-  
-  /** Container View **************************************************************************************************/
-  controllersView = [UIView new];
-  [controllersView setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [controllersView setBackgroundColor:[UIColor colorWithWhite:0.0f alpha:0.45f]];
-  
-  [self addSubview:controllersView];
-  
-  horizontalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"H:|[CV]|"
+
+    _player = [[AVPlayer alloc] initWithPlayerItem:nil];
+    _playerLayer = [[AVPlayerLayer alloc] init];
+    _playerLayer.player = self.player;
+    
+    _controlBackgroundColor = [UIColor colorWithWhite:0.0f alpha:0.45f];
+    
+    [self.layer addSublayer:_playerLayer];
+    
+    // Set up notification observers
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerDidFinishPlaying:)
+                                                 name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerFailedToPlayToEnd:)
+                                                 name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerStalled:)
+                                                 name:AVPlayerItemPlaybackStalledNotification object:nil];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(airPlayAvailabilityChanged:)
+                                                 name:MPVolumeViewWirelessRoutesAvailableDidChangeNotification object:nil];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(airPlayActivityChanged:)
+                                                 name:MPVolumeViewWirelessRouteActiveDidChangeNotification object:nil];
+    
+    [self setBackgroundColor:[UIColor blackColor]];
+    
+    /** Container View **************************************************************************************************/
+    _controlsView = [UIView new];
+    [_controlsView setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_controlsView setBackgroundColor:self.controlBackgroundColor];
+    
+    [self addSubview:_controlsView];
+    
+    /** Loading Indicator ***********************************************************************************************/
+    _activityIndicator = [UIActivityIndicatorView new];
+    _activityIndicator.translatesAutoresizingMaskIntoConstraints = NO;
+    [_activityIndicator stopAnimating];
+    
+    [self addSubview:_activityIndicator];
+
+    
+    // set constraints on activityIndicator and controlsView
+    [self updateControlsConstraints];
+    
+    /** AirPlay View ****************************************************************************************************/
+    
+    _airPlayLabel = [UILabel new];
+    [_airPlayLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_airPlayLabel setText:@"AirPlay is enabled"];
+    [_airPlayLabel setTextColor:[UIColor lightGrayColor]];
+    [_airPlayLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
+    [_airPlayLabel setTextAlignment:NSTextAlignmentCenter];
+    [_airPlayLabel setNumberOfLines:0];
+    [_airPlayLabel setHidden:YES];
+    
+    [self addSubview:_airPlayLabel];
+    
+    
+    NSArray *horizontalConstraints;
+    NSArray *verticalConstraints;
+    
+    horizontalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"H:|[AP]|"
+                                                                    options:0
+                                                                    metrics:nil
+                                                                      views:@{@"AP" : _airPlayLabel}];
+    verticalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"V:|[AP]-40@250-|"
                                                                   options:0
                                                                   metrics:nil
-                                                                    views:@{@"CV" : controllersView}];
-  
-  verticalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"V:[CV(40)]|"
-                                                                options:0
-                                                                metrics:nil
-                                                                  views:@{@"CV" : controllersView}];
-  [self addConstraints:horizontalConstraints];
-  [self addConstraints:verticalConstraints];
-  
-  
-  /** AirPlay View ****************************************************************************************************/
-  
-  airPlayLabel = [UILabel new];
-  [airPlayLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [airPlayLabel setText:@"AirPlay is enabled"];
-  [airPlayLabel setTextColor:[UIColor lightGrayColor]];
-  [airPlayLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
-  [airPlayLabel setTextAlignment:NSTextAlignmentCenter];
-  [airPlayLabel setNumberOfLines:0];
-  [airPlayLabel setHidden:YES];
-  
-  [self addSubview:airPlayLabel];
-  
-  horizontalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"H:|[AP]|"
-                                                                  options:0
-                                                                  metrics:nil
-                                                                    views:@{@"AP" : airPlayLabel}];
-  
-  verticalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"V:|[AP]-40-|"
-                                                                options:0
-                                                                metrics:nil
-                                                                  views:@{@"AP" : airPlayLabel}];
-  [self addConstraints:horizontalConstraints];
-  [self addConstraints:verticalConstraints];
-  
-  /** UI Controllers **************************************************************************************************/
-  playButton = [UIButton buttonWithType:UIButtonTypeCustom];
-  [playButton setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [playButton setImage:[UIImage imageNamed:@"gui_play"] forState:UIControlStateNormal];
-  [playButton setImage:[UIImage imageNamed:@"gui_pause"] forState:UIControlStateSelected];
-  
-  volumeView = [MPVolumeView new];
-  [volumeView setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [volumeView setShowsRouteButton:YES];
-  [volumeView setShowsVolumeSlider:NO];
-  [volumeView setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
-  
-  fullscreenButton = [UIButton buttonWithType:UIButtonTypeCustom];
-  [fullscreenButton setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [fullscreenButton setImage:[UIImage imageNamed:@"gui_expand"] forState:UIControlStateNormal];
-  [fullscreenButton setImage:[UIImage imageNamed:@"gui_shrink"] forState:UIControlStateSelected];
-  
-  currentTimeLabel = [UILabel new];
-  [currentTimeLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [currentTimeLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
-  [currentTimeLabel setTextAlignment:NSTextAlignmentCenter];
-  [currentTimeLabel setTextColor:[UIColor whiteColor]];
-  
-  remainingTimeLabel = [UILabel new];
-  [remainingTimeLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [remainingTimeLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
-  [remainingTimeLabel setTextAlignment:NSTextAlignmentCenter];
-  [remainingTimeLabel setTextColor:[UIColor whiteColor]];
-  
-  progressIndicator = [GUISlider new];
-  [progressIndicator setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [progressIndicator setContinuous:YES];
-  
-  liveLabel = [UILabel new];
-  [liveLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
-  [liveLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
-  [liveLabel setTextAlignment:NSTextAlignmentCenter];
-  [liveLabel setTextColor:[UIColor whiteColor]];
-  [liveLabel setText:@"Live"];
-  [liveLabel setHidden:YES];
-  
-  spacerView = [UIView new];
-  [spacerView setTranslatesAutoresizingMaskIntoConstraints:NO];
-  
-  [controllersView addSubview:playButton];
-  [controllersView addSubview:fullscreenButton];
-  [controllersView addSubview:volumeView];
-  [controllersView addSubview:currentTimeLabel];
-  [controllersView addSubview:progressIndicator];
-  [controllersView addSubview:remainingTimeLabel];
-  [controllersView addSubview:liveLabel];
-  [controllersView addSubview:spacerView];
-  
-  horizontalConstraints = [NSLayoutConstraint
-                           constraintsWithVisualFormat:@"H:|[P(40)][S(10)][C]-5-[I]-5-[R][F(40)][V(40)]|"
-                           options:0
-                           metrics:nil
-                           views:@{@"P" : playButton,
-                                   @"S" : spacerView,
-                                   @"C" : currentTimeLabel,
-                                   @"I" : progressIndicator,
-                                   @"R" : remainingTimeLabel,
-                                   @"V" : volumeView,
-                                   @"F" : fullscreenButton}];
-  
-  [controllersView addConstraints:horizontalConstraints];
-  
-  [volumeView hideByWidth:YES];
-  [spacerView hideByWidth:YES];
-  
-  horizontalConstraints = [NSLayoutConstraint
-                           constraintsWithVisualFormat:@"H:|-5-[L]-5-|"
-                           options:0
-                           metrics:nil
-                           views:@{@"L" : liveLabel}];
-  
-  [controllersView addConstraints:horizontalConstraints];
-  
-  for (UIView *view in [controllersView subviews]) {
-    verticalConstraints = [NSLayoutConstraint
-                           constraintsWithVisualFormat:@"V:|-0-[V(40)]"
-                           options:NSLayoutFormatAlignAllCenterY
-                           metrics:nil
-                           views:@{@"V" : view}];
-    [controllersView addConstraints:verticalConstraints];
-  }
-  
-  
-  /** Loading Indicator ***********************************************************************************************/
-  activityIndicator = [UIActivityIndicatorView new];
-  [activityIndicator stopAnimating];
-  
-  CGRect frame = self.frame;
-  frame.origin = CGPointZero;
-  [activityIndicator setFrame:frame];
-  
-  [self addSubview:activityIndicator];
-  
-  
-  /** Actions Setup ***************************************************************************************************/
-  
-  [playButton addTarget:self action:@selector(togglePlay:) forControlEvents:UIControlEventTouchUpInside];
-  [fullscreenButton addTarget:self action:@selector(toggleFullscreen:) forControlEvents:UIControlEventTouchUpInside];
-  
-  [progressIndicator addTarget:self action:@selector(seek:) forControlEvents:UIControlEventValueChanged];
-  [progressIndicator addTarget:self action:@selector(pauseRefreshing) forControlEvents:UIControlEventTouchDown];
-  [progressIndicator addTarget:self action:@selector(resumeRefreshing) forControlEvents:UIControlEventTouchUpInside|
-   UIControlEventTouchUpOutside];
-  
-  [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(showControllers)]];
-  [self showControllers];
-  
-  controllersTimeoutPeriod = 3;
+                                                                    views:@{@"AP" : _airPlayLabel}];
+    [self addConstraints:horizontalConstraints];
+    [self addConstraints:verticalConstraints];
+    
+    
+    
+    /** UI Controllers **************************************************************************************************/
+    _playButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    [_playButton setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_playButton setImage:[UIImage imageNamed:@"gui_play"] forState:UIControlStateNormal];
+    [_playButton setImage:[UIImage imageNamed:@"gui_pause"] forState:UIControlStateSelected];
+    
+    _volumeView = [MPVolumeView new];
+    [_volumeView setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_volumeView setShowsRouteButton:YES];
+    [_volumeView setShowsVolumeSlider:NO];
+    [_volumeView setAutoresizingMask:UIViewAutoresizingFlexibleWidth];
+    
+    _fullScreenButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    [_fullScreenButton setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_fullScreenButton setImage:[UIImage imageNamed:@"gui_expand"] forState:UIControlStateNormal];
+    [_fullScreenButton setImage:[UIImage imageNamed:@"gui_shrink"] forState:UIControlStateSelected];
+    
+    _currentTimeLabel = [UILabel new];
+    [_currentTimeLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_currentTimeLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
+    [_currentTimeLabel setTextAlignment:NSTextAlignmentCenter];
+    [_currentTimeLabel setTextColor:[UIColor whiteColor]];
+    
+    _remainingTimeLabel = [UILabel new];
+    [_remainingTimeLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_remainingTimeLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
+    [_remainingTimeLabel setTextAlignment:NSTextAlignmentCenter];
+    [_remainingTimeLabel setTextColor:[UIColor whiteColor]];
+    
+    _progressIndicator = [GUISlider new];
+    [_progressIndicator setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_progressIndicator setContinuous:YES];
+    
+    _liveLabel = [UILabel new];
+    [_liveLabel setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_liveLabel setFont:[UIFont fontWithName:@"HelveticaNeue-Light" size:13.0f]];
+    [_liveLabel setTextAlignment:NSTextAlignmentCenter];
+    [_liveLabel setTextColor:[UIColor whiteColor]];
+    [_liveLabel setText:@"Live"];
+    [_liveLabel setHidden:YES];
+    
+    _spacerView = [UIView new];
+    [_spacerView setTranslatesAutoresizingMaskIntoConstraints:NO];
+    
+    [_controlsView addSubview:self.playButton];
+    [_controlsView addSubview:self.fullScreenButton];
+    [_controlsView addSubview:self.volumeView];
+    [_controlsView addSubview:self.currentTimeLabel];
+    [_controlsView addSubview:self.progressIndicator];
+    [_controlsView addSubview:self.remainingTimeLabel];
+    [_controlsView addSubview:self.liveLabel];
+    [_controlsView addSubview:self.spacerView];
+    
+    horizontalConstraints = [NSLayoutConstraint
+                             constraintsWithVisualFormat:@"H:|[P(40@750)][S(10@750)][C]-5@250-[I]-5@250-[R][F(40@750)][V(40@750)]|"
+                             options:0
+                             metrics:nil
+                             views:@{@"P" : self.playButton,
+                                     @"S" : self.spacerView,
+                                     @"C" : self.currentTimeLabel,
+                                     @"I" : self.progressIndicator,
+                                     @"R" : self.remainingTimeLabel,
+                                     @"V" : self.volumeView,
+                                     @"F" : self.fullScreenButton}];
+    
+    [self.controlsView addConstraints:horizontalConstraints];
+    
+    
+    [self.volumeView hideByWidth:YES];
+    [self.spacerView hideByWidth:YES];
+    
+    horizontalConstraints = [NSLayoutConstraint
+                             constraintsWithVisualFormat:@"H:|-5@250-[L]-5@250-|"
+                             options:0
+                             metrics:nil
+                             views:@{@"L" : self.liveLabel}];
+    
+    [self.controlsView addConstraints:horizontalConstraints];
+    
+    for (UIView *view in [_controlsView subviews]) {
+        verticalConstraints = [NSLayoutConstraint
+                               constraintsWithVisualFormat:@"V:|-0-[V(40@850)]"
+                               options:NSLayoutFormatAlignAllCenterY
+                               metrics:nil
+                               views:@{@"V" : view}];
+        [self.controlsView addConstraints:verticalConstraints];
+    }
+    
+
+    
+    
+    /** Actions Setup ***************************************************************************************************/
+    
+    [_playButton addTarget:self action:@selector(togglePlay:) forControlEvents:UIControlEventTouchUpInside];
+    [_fullScreenButton addTarget:self action:@selector(toggleFullScreen:) forControlEvents:UIControlEventTouchUpInside];
+    
+    [_progressIndicator addTarget:self action:@selector(seek:) forControlEvents:UIControlEventValueChanged];
+    [_progressIndicator addTarget:self action:@selector(pauseRefreshing) forControlEvents:UIControlEventTouchDown];
+    [_progressIndicator addTarget:self action:@selector(resumeRefreshing) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+    
+    [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(showControls:)]];
+    
+    self.controlTimeoutPeriod = 3;
+    
+    [self setControlsHidden:NO animated:NO];
 }
+
+// updateControllerConstraints gets called after the controls are moved from the embedded view to the fullScreen view
+// callers should be careful to ensure that is is called only after a view has been added to a new superview
+
+- (void)updateControlsConstraints {
+
+    NSArray *horizontalConstraints;
+    NSArray *verticalConstraints;
+
+    horizontalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"H:|[CV]|"
+                                                                    options:0
+                                                                    metrics:nil
+                                                                      views:@{@"CV" : self.controlsView}];
+
+    verticalConstraints = [NSLayoutConstraint constraintsWithVisualFormat:@"V:[CV(40)]|"
+                                                                  options:0
+                                                                  metrics:nil
+                                                                    views:@{@"CV" : self.controlsView}];
+
+    [self.controlsView.superview addConstraints:horizontalConstraints];
+    [self.controlsView.superview addConstraints:verticalConstraints];
+    
+    [self.activityIndicator.superview addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:[superview]-(<=1)-[activityIndicator]"
+                                                                 options:NSLayoutFormatAlignAllCenterY
+                                                                 metrics:nil
+                                                                   views:@{@"superview":self.activityIndicator.superview, @"activityIndicator":self.activityIndicator}]];
+    
+    [self.activityIndicator.superview addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:[superview]-(<=1)-[activityIndicator]"
+                                                                 options:NSLayoutFormatAlignAllCenterX
+                                                                 metrics:nil
+                                                                   views:@{@"superview":self.activityIndicator.superview, @"activityIndicator":self.activityIndicator}]];
+}
+
 
 #pragma mark - UI Customization
 
 - (void)setTintColor:(UIColor *)tintColor {
-  [super setTintColor:tintColor];
-  
-  [progressIndicator setTintColor:tintColor];
+    [super setTintColor:tintColor];
+
+    [self.progressIndicator setTintColor:tintColor];
 }
 
 - (void)setBufferTintColor:(UIColor *)tintColor {
-  [progressIndicator setSecondaryTintColor:tintColor];
+    [self.progressIndicator setSecondaryTintColor:tintColor];
 }
 
 - (void)setLiveStreamText:(NSString *)text {
-  [liveLabel setText:text];
+    [self.liveLabel setText:text];
 }
 
 - (void)setAirPlayText:(NSString *)text {
-  [airPlayLabel setText:text];
+    [self.airPlayLabel setText:text];
 }
 
 #pragma mark - Actions
 
 - (void)togglePlay:(UIButton *)button {
-  if ([button isSelected]) {
-    [button setSelected:NO];
-    [player pause];
-    
-    if ([delegate respondsToSelector:@selector(playerDidPause)]) {
-      [delegate playerDidPause];
+
+    if ([button isSelected]) {
+        [button setSelected:NO];
+        [self.player pause];
+
+        if ([self.delegate respondsToSelector:@selector(playerDidPause:)]) {
+            [self.delegate playerDidPause:self];
+        }
+    } else {
+        [button setSelected:YES];
+        [self play];
+
+        if ([self.delegate respondsToSelector:@selector(playerDidResume:)]) {
+            [self.delegate playerDidResume:self];
+        }
     }
-  } else {
-    [button setSelected:YES];
-    [self play];
-    
-    if ([delegate respondsToSelector:@selector(playerDidResume)]) {
-      [delegate playerDidResume];
-    }
-  }
-  
-  [self showControllers];
+
+    [self setControlsHidden:NO animated:YES];
 }
 
-- (void)toggleFullscreen:(UIButton *)button {
-  if (fullscreen) {
-    if ([delegate respondsToSelector:@selector(playerWillLeaveFullscreen)]) {
-      [delegate playerWillLeaveFullscreen];
-    }
-    
-    [UIView animateWithDuration:0.2f animations:^{
-      [self setTransform:CGAffineTransformMakeRotation(0)];
-      [self setFrame:defaultFrame];
-      
-      CGRect frame = defaultFrame;
-      frame.origin = CGPointZero;
-      [playerLayer setFrame:frame];
-      [activityIndicator setFrame:frame];
-    } completion:^(BOOL finished) {
-      fullscreen = NO;
-      
-      if ([delegate respondsToSelector:@selector(playerDidLeaveFullscreen)]) {
-        [delegate playerDidLeaveFullscreen];
-      }
-    }];
-    
-    [button setSelected:NO];
-  } else {
-    UIInterfaceOrientation orientation = [[UIApplication sharedApplication] statusBarOrientation];
-    
-    CGFloat width = [[UIScreen mainScreen] bounds].size.width;
-    CGFloat height = [[UIScreen mainScreen] bounds].size.height;
-    CGRect frame;
-    
-    if (UIInterfaceOrientationIsPortrait(orientation)) {
-      CGFloat aux = width;
-      width = height;
-      height = aux;
-      frame = CGRectMake((height - width) / 2, (width - height) / 2, width, height);
+- (void)toggleFullScreen:(UIButton *)button {
+
+    if (self.fullScreen) {
+
+        if ([self.delegate respondsToSelector:@selector(playerWillLeaveFullScreen:)]) {
+            [self.delegate playerWillLeaveFullScreen:self];
+        }
+
+        [self.playerLayer removeFromSuperlayer];
+        self.playerLayer.frame = self.bounds;
+        [self.layer addSublayer:self.playerLayer];
+        [self.layer setNeedsLayout];
+
+        [self addSubview:self.controlsView];
+        [self addSubview:self.activityIndicator];
+
+        [self updateControlsConstraints];
+
+        [self.navigationController dismissViewControllerAnimated:YES completion:^{
+            self.navigationController = nil;
+            self.fullScreenController = nil;
+            self.fullScreen = NO;
+
+            if ([self.delegate respondsToSelector:@selector(playerDidLeaveFullScreen:)]) {
+                [self.delegate playerDidLeaveFullScreen:self];
+            }
+        }];
+
+        [button setSelected:NO];
     } else {
-      frame = CGRectMake(0, 0, width, height);
+
+        if ([self.delegate respondsToSelector:@selector(playerWillEnterFullScreen:)]) {
+            [self.delegate playerWillEnterFullScreen:self];
+        }
+
+        self.fullScreenController = [[GUIFullScreenPlayerController alloc] initWithNibName:nil bundle:nil];
+
+        self.fullScreenController.ownerPlayerView = self;
+        self.fullScreenController.playerView.playerLayer = self.playerLayer;
+
+        self.fullScreenController.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(toggleFullScreen:)];
+
+        [self.fullScreenController.view addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(showControls:)]];
+
+        [self.fullScreenController.playerView addSubview:self.controlsView];
+        [self.fullScreenController.playerView addSubview:self.activityIndicator];
+        
+        [self updateControlsConstraints];
+
+        self.navigationController = [[GUINavigationController alloc] initWithRootViewController:self.fullScreenController];
+
+        self.navigationController.navigationBar.barStyle = UIBarStyleBlack;
+        self.navigationController.modalPresentationStyle = UIModalPresentationFullScreen;
+        self.navigationController.modalTransitionStyle = UIModalTransitionStyleCoverVertical;
+        self.navigationController.transitioningDelegate = self;
+        
+        UIInterfaceOrientation currentInterfaceOrientation = [[UIApplication sharedApplication] statusBarOrientation];
+        
+        if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPhone) {
+            if (UIInterfaceOrientationIsLandscape(currentInterfaceOrientation)){
+                self.navigationController.guiPreferredInterfaceOrientation = currentInterfaceOrientation;
+            } else {
+                self.navigationController.guiPreferredInterfaceOrientation = UIInterfaceOrientationLandscapeLeft;
+            }
+        } else {
+            self.navigationController.guiPreferredInterfaceOrientation = currentInterfaceOrientation;
+        }
+
+        [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:self.navigationController animated:YES completion:^{
+            self.navigationController.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
+            self.navigationController.transitioningDelegate = nil;
+
+            self.fullScreen = YES;
+
+            if ([self.delegate respondsToSelector:@selector(playerDidEnterFullScreen:)]) {
+                [self.delegate playerDidEnterFullScreen:self];
+            }
+        }];
+
+        [button setSelected:YES];
     }
-    
-    if ([delegate respondsToSelector:@selector(playerWillEnterFullscreen)]) {
-      [delegate playerWillEnterFullscreen];
-    }
-    
-    [UIView animateWithDuration:0.2f animations:^{
-      [self setFrame:frame];
-      [playerLayer setFrame:CGRectMake(0, 0, width, height)];
-      
-      [activityIndicator setFrame:CGRectMake(0, 0, width, height)];
-      if (UIInterfaceOrientationIsPortrait(orientation)) {
-        [self setTransform:CGAffineTransformMakeRotation(M_PI_2)];
-        [activityIndicator setTransform:CGAffineTransformMakeRotation(M_PI_2)];
-      }
-      
-    } completion:^(BOOL finished) {
-      fullscreen = YES;
-      
-      if ([delegate respondsToSelector:@selector(playerDidEnterFullscreen)]) {
-        [delegate playerDidEnterFullscreen];
-      }
-    }];
-    
-    [button setSelected:YES];
-  }
-  
-  [self showControllers];
+
+    [self setControlsHidden:NO animated:NO];
 }
 
 - (void)seek:(UISlider *)slider {
-  int timescale = currentItem.asset.duration.timescale;
-  float time = slider.value * (currentItem.asset.duration.value / timescale);
-  [player seekToTime:CMTimeMakeWithSeconds(time, timescale)];
-  
-  [self showControllers];
+    int timescale = self.currentItem.asset.duration.timescale;
+    CGFloat time = slider.value * (self.currentItem.asset.duration.value / timescale);
+    [self.player seekToTime:CMTimeMakeWithSeconds(time, timescale)];
+
+    [self setControlsHidden:NO animated:NO];
 }
 
 - (void)pauseRefreshing {
-  seeking = YES;
+    self.seeking = YES;
 }
 
 - (void)resumeRefreshing {
-  seeking = NO;
+    self.seeking = NO;
 }
 
 - (NSTimeInterval)availableDuration {
-  NSTimeInterval result = 0;
-  NSArray *loadedTimeRanges = player.currentItem.loadedTimeRanges;
-  
-  if ([loadedTimeRanges count] > 0) {
-    CMTimeRange timeRange = [[loadedTimeRanges objectAtIndex:0] CMTimeRangeValue];
-    Float64 startSeconds = CMTimeGetSeconds(timeRange.start);
-    Float64 durationSeconds = CMTimeGetSeconds(timeRange.duration);
-    result = startSeconds + durationSeconds;
-  }
-  
-  return result;
-}
+    NSTimeInterval result = 0;
+    NSArray *loadedTimeRanges = self.player.currentItem.loadedTimeRanges;
 
-- (void)refreshProgressIndicator {
-  CGFloat duration = CMTimeGetSeconds(currentItem.asset.duration);
-  
-  if (duration == 0 || isnan(duration)) {
-    // Video is a live stream
-    [currentTimeLabel setText:nil];
-    [remainingTimeLabel setText:nil];
-    [progressIndicator setHidden:YES];
-    [liveLabel setHidden:NO];
-  }
-  
-  else {
-    CGFloat current = seeking ?
-    progressIndicator.value * duration :         // If seeking, reflects the position of the slider
-    CMTimeGetSeconds(player.currentTime); // Otherwise, use the actual video position
-    
-    [progressIndicator setValue:(current / duration)];
-    [progressIndicator setSecondaryValue:([self availableDuration] / duration)];
-    
-    // Set time labels
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:(duration >= 3600 ? @"hh:mm:ss": @"mm:ss")];
-    
-    NSDate *currentTime = [NSDate dateWithTimeIntervalSince1970:current];
-    NSDate *remainingTime = [NSDate dateWithTimeIntervalSince1970:(duration - current)];
-    
-    [currentTimeLabel setText:[formatter stringFromDate:currentTime]];
-    [remainingTimeLabel setText:[NSString stringWithFormat:@"-%@", [formatter stringFromDate:remainingTime]]];
-    
-    [progressIndicator setHidden:NO];
-    [liveLabel setHidden:YES];
-  }
-}
-
-- (void)showControllers {
-  [UIView animateWithDuration:0.2f animations:^{
-    [controllersView setAlpha:1.0f];
-  } completion:^(BOOL finished) {
-    [controllersTimer invalidate];
-    
-    if (controllersTimeoutPeriod > 0) {
-      controllersTimer = [NSTimer scheduledTimerWithTimeInterval:controllersTimeoutPeriod
-                                                          target:self
-                                                        selector:@selector(hideControllers)
-                                                        userInfo:nil
-                                                         repeats:NO];
+    if ([loadedTimeRanges count] > 0) {
+        CMTimeRange timeRange = [loadedTimeRanges[0] CMTimeRangeValue];
+        Float64 startSeconds = CMTimeGetSeconds(timeRange.start);
+        Float64 durationSeconds = CMTimeGetSeconds(timeRange.duration);
+        result = startSeconds + durationSeconds;
     }
-  }];
+
+    return result;
 }
 
-- (void)hideControllers {
-  [UIView animateWithDuration:0.5f animations:^{
-    [controllersView setAlpha:0.0f];
-  }];
+- (void)refreshProgressIndicator:(id)timer {
+    Float64 duration = CMTimeGetSeconds(self.currentItem.asset.duration);
+
+    if (duration == 0 || isnan(duration)) {
+        // Video is a live stream
+        [self.currentTimeLabel setText:nil];
+        [self.remainingTimeLabel setText:nil];
+        [self.progressIndicator setHidden:YES];
+        [self.liveLabel setHidden:NO];
+    } else {
+        Float64 current = self.seeking ?
+                self.progressIndicator.value * duration :         // If seeking, reflects the position of the slider
+                CMTimeGetSeconds(self.player.currentTime); // Otherwise, use the actual video position
+
+        [self.progressIndicator setValue:(CGFloat) (current / duration)];
+        [self.progressIndicator setSecondaryValue:(CGFloat) ([self availableDuration] / duration)];
+
+        // Set time labels
+        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+        [formatter setDateFormat:(duration >= 3600 ? @"hh:mm:ss" : @"mm:ss")];
+
+        NSDate *currentTime = [NSDate dateWithTimeIntervalSince1970:current];
+        NSDate *remainingTime = [NSDate dateWithTimeIntervalSince1970:(duration - current)];
+
+        [self.currentTimeLabel setText:[formatter stringFromDate:currentTime]];
+        [self.remainingTimeLabel setText:[NSString stringWithFormat:@"-%@", [formatter stringFromDate:remainingTime]]];
+
+        [self.progressIndicator setHidden:NO];
+        [self.liveLabel setHidden:YES];
+    }
 }
+
+
+- (void)setControlsHidden:(BOOL)hidden{
+    [self setControlsHidden:hidden animated:NO];
+}
+
+- (void)setControlsHidden:(BOOL)hidden animated:(BOOL)animated{
+
+    if (hidden) {
+
+        [UIView animateWithDuration:(animated?0.5f:0.0f) animations:^{
+
+            [self.controlsView setAlpha:0.0f];
+
+            //if we have a fullScreen NavigationController
+            self.navigationController.navigationBar.alpha = 0.0;
+        }];
+
+    } else {
+
+        [UIView animateWithDuration:(animated?0.2f:0.0f) animations:^{
+
+            [self.controlsView setAlpha:1.0f];
+
+            //if we have a fullScreen NavigationController
+            self.navigationController.navigationBar.alpha = 1.0;
+
+        } completion:^(BOOL finished) {
+
+            [self.controllersTimer invalidate];
+
+            // auto hide threshold
+            if ([self.volumeView isWirelessRouteActive]==NO && self.controlTimeoutPeriod > 0) {
+
+                self.controllersTimer = [NSTimer scheduledTimerWithTimeInterval:self.controlTimeoutPeriod
+                                                                         target:self
+                                                                       selector:@selector(hideControls:)
+                                                                       userInfo:nil
+                                                                        repeats:NO];
+            }
+        }];
+
+    }
+}
+
+- (void)hideControls:(id)sender {
+    [self setControlsHidden:YES animated:YES];
+}
+
+- (void)showControls:(id)sender {
+    [self setControlsHidden:NO animated:YES];
+}
+
+- (BOOL)controlsHidden {
+    return self.controlsView.alpha > 0;
+}
+
 
 #pragma mark - Public Methods
 
 - (void)prepareAndPlayAutomatically:(BOOL)playAutomatically {
-  if (player) {
-    [self stop];
-  }
-  
-  player = [[AVPlayer alloc] initWithPlayerItem:nil];
-  
-  AVURLAsset *asset = [[AVURLAsset alloc] initWithURL:videoURL options:nil];
-  NSArray *keys = [NSArray arrayWithObject:@"playable"];
-  
-  [asset loadValuesAsynchronouslyForKeys:keys completionHandler:^{
-    currentItem = [AVPlayerItem playerItemWithAsset:asset];
-    [player replaceCurrentItemWithPlayerItem:currentItem];
-    
-    if (playAutomatically) {
-      dispatch_sync(dispatch_get_main_queue(), ^{
-        [self play];
-      });
+
+    if (self.player) {
+        [self stop];
     }
-  }];
-  
-  [player setAllowsExternalPlayback:YES];
-  playerLayer = [AVPlayerLayer playerLayerWithPlayer:player];
-  [self.layer addSublayer:playerLayer];
-  
-  defaultFrame = self.frame;
-  
-  CGRect frame = self.frame;
-  frame.origin = CGPointZero;
-  [playerLayer setFrame:frame];
-  
-  [self bringSubviewToFront:controllersView];
-  
-  [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
-  
-  [player addObserver:self forKeyPath:@"rate" options:0 context:nil];
-  [currentItem addObserver:self forKeyPath:@"status" options:0 context:nil];
-  
-  [player seekToTime:kCMTimeZero];
-  [player setRate:0.0f];
-  [playButton setSelected:YES];
-  
-  if (playAutomatically) {
-    [activityIndicator startAnimating];
-  }
+
+    AVURLAsset *asset = [[AVURLAsset alloc] initWithURL:self.videoURL options:nil];
+    NSArray *keys = @[@"playable"];
+
+    [asset loadValuesAsynchronouslyForKeys:keys completionHandler:^{
+
+        self.currentItem = [AVPlayerItem playerItemWithAsset:asset];
+
+        [self.player replaceCurrentItemWithPlayerItem:self.currentItem];
+        if (playAutomatically) {
+            dispatch_sync(dispatch_get_main_queue(), ^{
+                [self play];
+            });
+        }
+    }];
+
+    [self.player setAllowsExternalPlayback:YES];
+
+    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
+
+    [self.player addObserver:self forKeyPath:@"rate" options:0 context:nil];
+
+    [self.player seekToTime:kCMTimeZero];
+    [self.player setRate:0.0f];
+    [self.playButton setSelected:YES];
+
+    if (playAutomatically) {
+        [self.activityIndicator startAnimating];
+    }
 }
 
-- (void)clean {
-  [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
-  [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
-  [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemPlaybackStalledNotification object:nil];
-  [[NSNotificationCenter defaultCenter] removeObserver:self name:MPVolumeViewWirelessRoutesAvailableDidChangeNotification object:nil];
-  [[NSNotificationCenter defaultCenter] removeObserver:self name:MPVolumeViewWirelessRouteActiveDidChangeNotification object:nil];
-  
-  [player setAllowsExternalPlayback:NO];
-  [self stop];
-  [player removeObserver:self forKeyPath:@"rate"];
-  [self setPlayer:nil];
-  [self setPlayerLayer:nil];
-  [self removeFromSuperview];
+- (void)setCurrentItem:(AVPlayerItem *)currentItem {
+
+    if (_currentItem != currentItem) {
+        [_currentItem removeObserver:self forKeyPath:@"status"];
+
+        _currentItem = currentItem;
+
+        [_currentItem addObserver:self forKeyPath:@"status" options:0 context:nil];
+    }
+}
+
+
+- (void)didMoveToSuperview {
+
+    [super didMoveToSuperview];
+
+    if (!self.superview) {
+        [self.progressTimer invalidate];
+        self.progressTimer = nil;
+
+        [self.controllersTimer invalidate];
+        self.controllersTimer = nil;
+    }
 }
 
 - (void)play {
-  [player play];
-  
-  [playButton setSelected:YES];
-  
-  progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.1f
-                                                   target:self
-                                                 selector:@selector(refreshProgressIndicator)
-                                                 userInfo:nil
-                                                  repeats:YES];
+
+    [self.player play];
+
+    [self.playButton setSelected:YES];
+
+    self.progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.1f
+                                                          target:self
+                                                        selector:@selector(refreshProgressIndicator:)
+                                                        userInfo:nil
+                                                         repeats:YES];
 }
 
 - (void)pause {
-  [player pause];
-  [playButton setSelected:NO];
-  
-  if ([delegate respondsToSelector:@selector(playerDidPause)]) {
-    [delegate playerDidPause];
-  }
+
+    [self.player pause];
+    [self.playButton setSelected:NO];
+
+    if ([self.delegate respondsToSelector:@selector(playerDidPause:)]) {
+        [self.delegate playerDidPause:self];
+    }
 }
 
 - (void)stop {
-  if (player) {
-    [player pause];
-    [player seekToTime:kCMTimeZero];
-    
-    [playButton setSelected:NO];
-  }
+
+    if (self.player) {
+
+        [self.player pause];
+        [self.player seekToTime:kCMTimeZero];
+
+        [self.playButton setSelected:NO];
+    }
 }
 
 - (BOOL)isPlaying {
-  return [player rate] > 0.0f;
+
+    return [self.player rate] > 0.0f;
 }
 
 #pragma mark - AV Player Notifications and Observers
 
 - (void)playerDidFinishPlaying:(NSNotification *)notification {
-  [self stop];
-  
-  if (fullscreen) {
-    [self toggleFullscreen:fullscreenButton];
-  }
-  
-  if ([delegate respondsToSelector:@selector(playerDidEndPlaying)]) {
-    [delegate playerDidEndPlaying];
-  }
+
+    if (notification.object == self.currentItem) {
+
+        [self stop];
+
+        if ([self.delegate respondsToSelector:@selector(playerDidEndPlaying:)]) {
+            [self.delegate playerDidEndPlaying:self];
+        }
+    }
 }
 
 - (void)playerFailedToPlayToEnd:(NSNotification *)notification {
-  [self stop];
-  
-  if ([delegate respondsToSelector:@selector(playerFailedToPlayToEnd)]) {
-    [delegate playerFailedToPlayToEnd];
-  }
+    if (notification.object == self.currentItem) {
+
+        [self stop];
+
+        if ([self.delegate respondsToSelector:@selector(playerFailedToPlayToEnd:error:)]) {
+            [self.delegate playerFailedToPlayToEnd:self error:[notification userInfo][@"AVPlayerItemFailedToPlayToEndTimeErrorKey"]] ;
+        }
+    }
 }
 
 - (void)playerStalled:(NSNotification *)notification {
-  [self togglePlay:playButton];
-  
-  if ([delegate respondsToSelector:@selector(playerStalled)]) {
-    [delegate playerStalled];
-  }
+
+    if (notification.object == self.currentItem) {
+
+        [self togglePlay:self.playButton];
+
+        if ([self.delegate respondsToSelector:@selector(playerStalled:)]) {
+            [self.delegate playerStalled:self];
+        }
+    }
 }
 
 
 - (void)airPlayAvailabilityChanged:(NSNotification *)notification {
-  [UIView animateWithDuration:0.4f
-                   animations:^{
-                     if ([volumeView areWirelessRoutesAvailable]) {
-                       [volumeView hideByWidth:NO];
-                     } else if (! [volumeView isWirelessRouteActive]) {
-                       [volumeView hideByWidth:YES];
-                     }
-                     [self layoutIfNeeded];
-                   }];
-}
 
+    [UIView animateWithDuration:0.4f
+                     animations:^{
+
+                         if ([self.volumeView areWirelessRoutesAvailable]) {
+                             [self.volumeView hideByWidth:NO];
+                         } else if (![self.volumeView isWirelessRouteActive]) {
+                             [self.volumeView hideByWidth:YES];
+                         }
+
+                         [self layoutIfNeeded];
+
+                     }];
+}
 
 - (void)airPlayActivityChanged:(NSNotification *)notification {
-  [UIView animateWithDuration:0.4f
-                   animations:^{
-                     if ([volumeView isWirelessRouteActive]) {
-                       if (fullscreen)
-                         [self toggleFullscreen:fullscreenButton];
-                       
-                       [playButton hideByWidth:YES];
-                       [fullscreenButton hideByWidth:YES];
-                       [spacerView hideByWidth:NO];
-                       
-                       [airPlayLabel setHidden:NO];
-                       
-                       controllersTimeoutPeriod = 0;
-                       [self showControllers];
-                     } else {
-                       [playButton hideByWidth:NO];
-                       [fullscreenButton hideByWidth:NO];
-                       [spacerView hideByWidth:YES];
-                       
-                       [airPlayLabel setHidden:YES];
-                       
-                       controllersTimeoutPeriod = 3;
-                       [self showControllers];
-                     }
-                     [self layoutIfNeeded];
-                   }];
+
+    [UIView animateWithDuration:0.4f
+                     animations:^{
+                         if ([self.volumeView isWirelessRouteActive]) {
+
+                             [self.playButton hideByWidth:YES];
+                             [self.fullScreenButton hideByWidth:YES];
+                             [self.spacerView hideByWidth:NO];
+
+                             [self.airPlayLabel setHidden:NO];
+
+                             [self setControlsHidden:NO animated:YES];
+                         } else {
+                             [self.playButton hideByWidth:NO];
+                             [self.fullScreenButton hideByWidth:NO];
+                             [self.spacerView hideByWidth:YES];
+
+                             [self.airPlayLabel setHidden:YES];
+
+                             [self setControlsHidden:NO animated:YES];
+                         }
+                         [self layoutIfNeeded];
+                     }];
 }
 
+#pragma mark - KVO
+
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
-  if ([keyPath isEqualToString:@"status"]) {
-    if (currentItem.status == AVPlayerItemStatusFailed) {
-      if ([delegate respondsToSelector:@selector(playerFailedToPlayToEnd)]) {
-        [delegate playerFailedToPlayToEnd];
-      }
+
+    if (self.currentItem == object && [keyPath isEqualToString:@"status"]) {
+        if (self.currentItem.status == AVPlayerItemStatusFailed) {
+            if ([self.delegate respondsToSelector:@selector(playerFailedToPlayToEnd:error:)]) {
+                [self.delegate playerFailedToPlayToEnd:self error:nil];
+            }
+        }
     }
-  }
-  
-  if ([keyPath isEqualToString:@"rate"]) {
-    CGFloat rate = [player rate];
-    if (rate > 0) {
-      [activityIndicator stopAnimating];
+
+    if (self.player == object && [keyPath isEqualToString:@"rate"]) {
+        CGFloat rate = [self.player rate];
+        if (rate > 0) {
+            [self.activityIndicator stopAnimating];
+        }
     }
-  }
 }
+
+
+#pragma mark - UIViewControllerTransitioningDelegate
+
+- (id <UIViewControllerAnimatedTransitioning>)animationControllerForPresentedController:(UIViewController *)presented
+                                                                   presentingController:(UIViewController *)presenting
+                                                                       sourceController:(UIViewController *)source {
+    
+    GUIFullScreenAnimator *animator = [[GUIFullScreenAnimator alloc] init];
+    animator.sourceView = self;
+    animator.sourceInterfaceOrientation = [[UIApplication sharedApplication] statusBarOrientation];
+    return animator;
+}
+
 
 @end

@@ -16,68 +16,77 @@
 @property (weak, nonatomic) IBOutlet UIButton *removePlayerButton;
 @property (weak, nonatomic) IBOutlet UILabel *copyrightLabel;
 
+@property (strong, nonatomic) GUIPlayerView *playerView;
+
 - (IBAction)addPlayer:(UIButton *)sender;
 - (IBAction)removePlayer:(UIButton *)sender;
-
-@property (strong, nonatomic) GUIPlayerView *playerView;
 
 @end
 
 @implementation ViewController
 
-@synthesize addPlayerButton, removePlayerButton, copyrightLabel, playerView;
-
 #pragma mark - Interface Builder Actions
 
-- (IBAction)addPlayer:(UIButton *)sender {
-  [copyrightLabel setHidden:NO];
-  CGFloat width = [UIScreen mainScreen].bounds.size.width;
-  playerView = [[GUIPlayerView alloc] initWithFrame:CGRectMake(0, 64, width, width * 9.0f / 16.0f)];
-  [playerView setDelegate:self];
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.automaticallyAdjustsScrollViewInsets = NO;
+}
 
-  [[self view] addSubview:playerView];
+- (IBAction)addPlayer:(UIButton *)sender {
+  [self.copyrightLabel setHidden:NO];
+
+  self.playerView = [[GUIPlayerView alloc] initWithFrame:CGRectZero];
+  [self.playerView setDelegate:self];
+
+  [self.view addSubview:self.playerView];
   
-  NSURL *URL = [NSURL URLWithString:@"http://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4"];
-  [playerView setVideoURL:URL];
-  [playerView prepareAndPlayAutomatically:YES];
+//  NSURL *URL = [NSURL URLWithString:@"http://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4"];
+  NSURL *URL = [NSURL URLWithString:@"http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4"];
+    
+  [self.playerView setVideoURL:URL];
+  [self.playerView prepareAndPlayAutomatically:YES];
   
-  [addPlayerButton setEnabled:NO];
-  [removePlayerButton setEnabled:YES];
+  [self.addPlayerButton setEnabled:NO];
+  [self.removePlayerButton setEnabled:YES];
+}
+
+- (void)viewDidLayoutSubviews{
+    [super viewDidLayoutSubviews];
+    
+    CGFloat width = self.view.bounds.size.width;
+    CGRect frame =CGRectMake(0, self.topLayoutGuide.length, width, width * 9.0f / 16.0f);
+    
+    self.playerView.frame = frame;
 }
 
 - (IBAction)removePlayer:(UIButton *)sender {
-  [copyrightLabel setHidden:YES];
+  [self.copyrightLabel setHidden:YES];
   
-  [playerView clean];
-  
-  [addPlayerButton setEnabled:YES];
-  [removePlayerButton setEnabled:NO];
+  [self.playerView removeFromSuperview];
+  self.playerView = nil;
+    
+  [self.addPlayerButton setEnabled:YES];
+  [self.removePlayerButton setEnabled:NO];
 }
 
 #pragma mark - GUI Player View Delegate Methods
 
-- (void)playerWillEnterFullscreen {
-  [[self navigationController] setNavigationBarHidden:YES];
-  [[UIApplication sharedApplication] setStatusBarHidden:YES withAnimation:UIStatusBarAnimationFade];
+- (void)playerWillEnterFullScreen:(GUIPlayerView *)playerView {
+    NSLog(@"%s: %@", __PRETTY_FUNCTION__, playerView);
 }
 
-- (void)playerWillLeaveFullscreen {
-  [[self navigationController] setNavigationBarHidden:NO];
-  [[UIApplication sharedApplication] setStatusBarHidden:NO withAnimation:UIStatusBarAnimationFade];
+- (void)playerWillLeaveFullScreen:(GUIPlayerView *)playerView {
+    NSLog(@"%s: %@", __PRETTY_FUNCTION__, playerView);
 }
 
-- (void)playerDidEndPlaying {
-  [copyrightLabel setHidden:YES];
-  
-  [playerView clean];
-  
-  [addPlayerButton setEnabled:YES];
-  [removePlayerButton setEnabled:NO];
+- (void)playerDidEndPlaying:(GUIPlayerView *)playerView {
+    [self removePlayer:nil];
 }
 
-- (void)playerFailedToPlayToEnd {
-  NSLog(@"Error: could not play video");
-  [playerView clean];
+- (void)playerFailedToPlayToEnd:(GUIPlayerView *)playerView {
+    
+    NSLog(@"Error: could not play video");
+    [self removePlayer:nil];
 }
 
 @end
