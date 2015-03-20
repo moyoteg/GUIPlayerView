@@ -418,17 +418,24 @@
             self.navigationController.guiPreferredInterfaceOrientation = currentInterfaceOrientation;
         }
 
-        [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:self.navigationController animated:YES completion:^{
+        UIViewController *topViewController =[UIApplication sharedApplication].keyWindow.rootViewController;
+        
+        // find a viewController that can present a new viewcontroller
+        while (topViewController.presentedViewController) {
+            topViewController = topViewController.presentedViewController;
+        }
+        
+        [topViewController presentViewController:self.navigationController animated:YES completion:^{
             self.navigationController.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
             self.navigationController.transitioningDelegate = nil;
-
+            
             self.fullScreen = YES;
-
+            
             if ([self.delegate respondsToSelector:@selector(playerDidEnterFullScreen:)]) {
                 [self.delegate playerDidEnterFullScreen:self];
             }
         }];
-
+        
         [button setSelected:YES];
     }
 
