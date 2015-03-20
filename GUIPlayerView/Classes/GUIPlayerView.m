@@ -418,12 +418,7 @@
             self.navigationController.guiPreferredInterfaceOrientation = currentInterfaceOrientation;
         }
 
-        UIViewController *topViewController =[UIApplication sharedApplication].keyWindow.rootViewController;
-        
-        // find a viewController that can present a new viewcontroller
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
+        UIViewController *topViewController = [self topViewController:[UIApplication sharedApplication].keyWindow.rootViewController];
         
         [topViewController presentViewController:self.navigationController animated:YES completion:^{
             self.navigationController.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
@@ -774,6 +769,24 @@
     animator.sourceView = self;
     animator.sourceInterfaceOrientation = [[UIApplication sharedApplication] statusBarOrientation];
     return animator;
+}
+
+#pragma mark - Helper
+
+- (UIViewController *)topViewController:(UIViewController *)rootViewController
+{
+    if (rootViewController.presentedViewController == nil) {
+        return rootViewController;
+    }
+    
+    if ([rootViewController.presentedViewController isKindOfClass:[UINavigationController class]]) {
+        UINavigationController *navigationController = (UINavigationController *)rootViewController.presentedViewController;
+        UIViewController *lastViewController = [[navigationController viewControllers] lastObject];
+        return [self topViewController:lastViewController];
+    }
+    
+    UIViewController *presentedViewController = (UIViewController *)rootViewController.presentedViewController;
+    return [self topViewController:presentedViewController];
 }
 
 
