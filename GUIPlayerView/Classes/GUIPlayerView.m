@@ -50,36 +50,7 @@
 @end
 
 
-@implementation PlayerView
 
-- (instancetype)initWithFrame:(CGRect)frame {
-
-    self = [super initWithFrame:frame];
-    return self;
-}
-
-- (void)layoutSublayersOfLayer:(CALayer *)layer {
-    [super layoutSublayersOfLayer:layer];
-
-    if (layer == self.layer) {
-        self.playerLayer.frame = self.layer.bounds;
-    }
-}
-
-- (void)setPlayerLayer:(AVPlayerLayer *)playerLayer {
-
-    if (_playerLayer != playerLayer) {
-        [_playerLayer removeFromSuperlayer];
-
-        _playerLayer = playerLayer;
-
-        if (playerLayer) {
-            [self.layer addSublayer:playerLayer];
-        }
-    }
-}
-
-@end
 
 
 @implementation GUIPlayerView

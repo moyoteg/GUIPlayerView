@@ -8,13 +8,13 @@
 
 @class AVPlayerLayer;
 
-@interface PlayerView : UIView
+@interface GUIFullScreenPlayerView : UIView
 @property (nonatomic, strong) AVPlayerLayer *playerLayer;
 @end
 
 
 @interface GUIFullScreenPlayerController : UIViewController<UIViewControllerTransitioningDelegate>
-@property (nonatomic, readonly) PlayerView *playerView;
+@property (nonatomic, readonly) GUIFullScreenPlayerView *playerView;
 @property (nonatomic, weak) GUIPlayerView *ownerPlayerView;
 @end
 
