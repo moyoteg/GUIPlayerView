@@ -11,6 +11,7 @@
 * Customizable progress bar tint colors
 * Automatically detect whether the stream is a fixed-length or undefined (as in a live stream) and adjusts the UI accordingly
 * AirPlay integration
+* Fullscreen support
 
 ## Installation
 **CocoaPods** (recommended)  
@@ -26,7 +27,11 @@ Then set the property `videoURL` and call `prepareAndPlayAutomatically:`.
 
 If you decide not to play automatically, you can leave for the user to press Play, or you can do it programmatically by calling `play`.
 
-Once you're done playing the video, you may want to remove it from your view. To do so, just call the method `clean` and everything will be released, and the player view will be removed from its superview.
+Once you're done playing the video, you may want to remove it from your view. To do so, just remove the view from your superview and set your pointer to nil.
+```obj-c
+[self.playerView removeFromSuperview];
+self.playerView = nil;
+```
 
 ### Playback Control
 There are a few methods to control the video playback:
@@ -49,22 +54,19 @@ When the tint color is set, the buffer tint color will automatically be set to a
 ### Delegate Methods
 There are several optional delegate methods you can use:
 ```obj-c
-- (void)playerDidPause;
-- (void)playerDidResume;
-- (void)playerDidEndPlaying;
-- (void)playerWillEnterFullscreen;
-- (void)playerDidEnterFullscreen;
-- (void)playerWillLeaveFullscreen;
-- (void)playerDidLeaveFullscreen;
-- (void)playerFailedToPlayToEnd;
-- (void)playerStalled;
+- (void)playerDidPause:(GUIPlayerView *)playerView;
+- (void)playerDidResume:(GUIPlayerView *)playerView;
+- (void)playerDidEndPlaying:(GUIPlayerView *)playerView;
+- (void)playerWillEnterFullscreen:(GUIPlayerView *)playerView;
+- (void)playerDidEnterFullscreen:(GUIPlayerView *)playerView;
+- (void)playerWillLeaveFullscreen:(GUIPlayerView *)playerView;
+- (void)playerDidLeaveFullscreen:(GUIPlayerView *)playerView;
+- (void)playerFailedToPlayToEnd:(GUIPlayerView *)playerView error:(NSError *)error;
+- (void)playerStalled:(GUIPlayerView *)playerView;
 ```
 
 ## Issues
 As of this release, there are some issues that need to be worked on:
-
-* **It only behaves nicely on fixed-orientation apps**  
-It currently does not handle the orientation change events.
 
 * **Playlist or multiple streams not supported**  
 Only one video can be played and there are no interface buttons to skip/go back. You can still use the `playerDidEndPlaying` delegate method, reset `videoURL` and call `prepareAndPlayAutomatically`again to play another stream.

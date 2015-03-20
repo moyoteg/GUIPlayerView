@@ -33,6 +33,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		3804D6371ABC84040011787C /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = SOURCE_ROOT; };
 		792DFFCC1A6BDD0900AA0606 /* UIView+UpdateAutoLayoutConstraints.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "UIView+UpdateAutoLayoutConstraints.h"; sourceTree = "<group>"; };
 		792DFFCD1A6BDD0900AA0606 /* UIView+UpdateAutoLayoutConstraints.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "UIView+UpdateAutoLayoutConstraints.m"; sourceTree = "<group>"; };
 		798A745F1A3B269D00C611E8 /* GUIPlayerView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GUIPlayerView.h; sourceTree = "<group>"; };
@@ -132,6 +133,7 @@
 		79B9DF021A37642100EA2C0F /* GUIPlayerView */ = {
 			isa = PBXGroup;
 			children = (
+				3804D6371ABC84040011787C /* README.md */,
 				79B9DF071A37642100EA2C0F /* AppDelegate.h */,
 				79B9DF081A37642100EA2C0F /* AppDelegate.m */,
 				79B9DF0A1A37642100EA2C0F /* ViewController.h */,
