@@ -44,11 +44,11 @@
 
     CGRect sourceRect = [self.sourceView convertRect:self.sourceView.frame toView:self.sourceView.window];
     
-    UIInterfaceOrientation fromInterfaceOrienation = self.sourceInterfaceOrientation;
-    UIInterfaceOrientation toInterfaceOrienation = toViewController.preferredInterfaceOrientationForPresentation;
+    UIInterfaceOrientation fromInterfaceOrientation = self.sourceInterfaceOrientation;
+    UIInterfaceOrientation toInterfaceOrientation = toViewController.preferredInterfaceOrientationForPresentation;
     
-    if (!((UIInterfaceOrientationIsPortrait(fromInterfaceOrienation) && UIInterfaceOrientationIsPortrait(toInterfaceOrienation)) ||
-        (UIInterfaceOrientationIsLandscape(fromInterfaceOrienation) && UIInterfaceOrientationIsLandscape(toInterfaceOrienation)))){
+    if (!((UIInterfaceOrientationIsPortrait(fromInterfaceOrientation) && UIInterfaceOrientationIsPortrait(toInterfaceOrientation)) ||
+        (UIInterfaceOrientationIsLandscape(fromInterfaceOrientation) && UIInterfaceOrientationIsLandscape(toInterfaceOrientation)))){
         // no rotation is needed
         toViewController.view.transform = CGAffineTransformMakeRotation(M_PI_2);
     }
@@ -108,6 +108,7 @@
 - (instancetype)initWithFrame:(CGRect)frame {
     
     self = [super initWithFrame:frame];
+    self.backgroundColor = [UIColor blackColor];
     return self;
 }
 

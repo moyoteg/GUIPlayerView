@@ -91,6 +91,7 @@
     }
 }
 
+
 - (void)setup {
 
     _player = [[AVPlayer alloc] initWithPlayerItem:nil];
@@ -508,15 +509,28 @@
 
     if (hidden) {
 
+        if ([self.delegate respondsToSelector:@selector(playerWillHideControls:)]) {
+            [self.delegate playerWillHideControls:self];
+        }
+
+
         [UIView animateWithDuration:(animated?0.5f:0.0f) animations:^{
 
             [self.controlsView setAlpha:0.0f];
 
             //if we have a fullScreen NavigationController
             self.navigationController.navigationBar.alpha = 0.0;
+        } completion:^(BOOL finished){
+            if ([self.delegate respondsToSelector:@selector(playerDidHideControls:)]) {
+                [self.delegate playerDidHideControls:self];
+            }
         }];
 
     } else {
+
+        if ([self.delegate respondsToSelector:@selector(playerWillShowControls:)]) {
+            [self.delegate playerWillShowControls:self];
+        }
 
         [UIView animateWithDuration:(animated?0.2f:0.0f) animations:^{
 
@@ -529,8 +543,13 @@
 
             [self.controllersTimer invalidate];
 
+            if ([self.delegate respondsToSelector:@selector(playerDidShowControls:)]) {
+                [self.delegate playerDidShowControls:self];
+            }
+
+
             // auto hide threshold
-            if ([self.volumeView isWirelessRouteActive]==NO && self.controlTimeoutPeriod > 0) {
+            if ([self isPlaying] && [self.volumeView isWirelessRouteActive]==NO && self.controlTimeoutPeriod > 0) {
 
                 self.controllersTimer = [NSTimer scheduledTimerWithTimeInterval:self.controlTimeoutPeriod
                                                                          target:self

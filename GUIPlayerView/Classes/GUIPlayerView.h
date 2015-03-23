@@ -21,6 +21,11 @@
 - (void)playerWillLeaveFullScreen:(GUIPlayerView *)playerView;
 - (void)playerDidLeaveFullScreen:(GUIPlayerView *)playerView;
 
+- (void)playerWillShowControls:(GUIPlayerView *)playerView;
+- (void)playerDidShowControls:(GUIPlayerView *)playerView;
+- (void)playerWillHideControls:(GUIPlayerView *)playerView;
+- (void)playerDidHideControls:(GUIPlayerView *)playerView;
+
 - (void)playerFailedToPlayToEnd:(GUIPlayerView *)playerView error:(NSError *)error;
 - (void)playerStalled:(GUIPlayerView *)playerView;
 
